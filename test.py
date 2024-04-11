@@ -1,148 +1,72 @@
-import sys
 import cv2
 import numpy as np
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
-from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QLabel, QVBoxLayout, QMessageBox
-from PyQt5.QtGui import QImage, QPixmap, QPainter, QFont
-import tensorflow as tf
-import datetime
+from keras.models import load_model
 
-# Constants for video processing and model
-IMAGE_HEIGHT = 224
-IMAGE_WIDTH = 224
-CLASSES_LIST = ['Non-Violence', 'Violence']
+# Constants
+IMAGE_HEIGHT, IMAGE_WIDTH = 250, 250
+SEQUENCE_LENGTH = 16
+THRESHOLD_CONSECUTIVE_FRAMES = 5
+CLASSES_LIST = ["non_violence", "violence"]
 
-class CameraThread(QThread):
-    frame_processed = pyqtSignal(np.ndarray)
+model_path = 'C:/Users/WEP/Documents/AI/security/artificail-eye/violence3.keras'
 
-    def __init__(self):
-        super().__init__()
-        self.is_capturing = False
-        self.start_time = None
+# Load the Keras model
+model = load_model(model_path)
 
-    def run(self):
-        self.cap = cv2.VideoCapture(0)
-        self.is_capturing = True
-        self.start_time = datetime.datetime.now()
-        while self.is_capturing:
-            ret, frame = self.cap.read()
-            if not ret:
-                break
-            resized_frame = cv2.resize(frame, (IMAGE_WIDTH, IMAGE_HEIGHT))
-            self.frame_processed.emit(resized_frame)
-            self.msleep(30)  # Adjust sleep time for desired frame rate
+def detect_violence_realtime(model, sequence_length=SEQUENCE_LENGTH):
+    # Open a connection to the default camera (0)
+    cap = cv2.VideoCapture(1)
 
-    def stop_capture(self):
-        self.is_capturing = False
-        self.cap.release()
+    # Variable to keep track of consecutive frames classified as violence
+    violence_counter = 0
+    frames_queue = []
 
-    def get_start_time(self):
-        return self.start_time
+    while True:
+        # Capture frame-by-frame
+        ret, frame = cap.read()
 
-    def get_elapsed_time(self):
-        return datetime.datetime.now() - self.start_time if self.start_time else None
+        # Resize the frame to match the input size of your model
+        resized_frame = cv2.resize(frame, (IMAGE_HEIGHT, IMAGE_WIDTH))
 
-class ModelLoaderThread(QThread):
-    model_loaded = pyqtSignal(object)
+        # Preprocess the frame
+        normalized_frame = resized_frame / 255
 
-    def run(self):
-        model_path = 'C:/Users/WEP/Desktop/INTELLIGENT SECURITY CAMERA SYSTEM/violence/'  # Update path to saved model folder
-        model = tf.saved_model.load(model_path)
-        self.model_loaded.emit(model)
+        # Add the frame to the frames queue
+        frames_queue.append(normalized_frame)
 
-class ViolenceDetectionApp(QWidget):
-    def __init__(self):
-        super().__init__()
-        self.initUI()
+        # If the frames queue has reached the sequence length, make a prediction
+        if len(frames_queue) == sequence_length:
+            # Predict the class label
+            frames_array = np.array(frames_queue)
+            frames_array = np.expand_dims(frames_array, axis=0)
+            predicted_labels_probabilities = model.predict(frames_array)[0]
+            predicted_label = np.argmax(predicted_labels_probabilities)
+            predicted_class_name = CLASSES_LIST[predicted_label]
 
-        # Video processing variables
-        self.camera_thread = CameraThread()
-        self.model = None  # Initialize model as None
-        self.model_loader_thread = ModelLoaderThread()
+            # If violence is detected, increment the violence counter
+            if predicted_class_name == "Violence":
+                violence_counter += 1
+            else:
+                violence_counter = 0
 
-        # Connect signals
-        self.camera_thread.frame_processed.connect(self.process_frame)
-        self.model_loader_thread.model_loaded.connect(self.on_model_loaded)
+            # If violence has been detected for a certain number of consecutive frames, take action
+            if violence_counter >= THRESHOLD_CONSECUTIVE_FRAMES:
+                # Perform the desired action (e.g., alerting authorities)
+                print("Violence detected! Take action.")
 
-        # Variables for processed frame and prediction
-        self.processed_frame = None
-        self.predicted_class_name = ''
+                # Reset the violence counter
+                violence_counter = 0
 
-    def initUI(self):
-        self.setWindowTitle('Violence Detection App')
+            # Remove the oldest frame from the queue
+            frames_queue.pop(0)
 
-        # Create start button
-        self.start_button = QPushButton('Start Capture and Detection')
-        self.start_button.clicked.connect(self.start_capture_and_detection)
+        # Display the frame
+        cv2.imshow('Real-time Violence Detection', frame)
 
-        # Create stop button
-        self.stop_button = QPushButton('Stop')
-        self.stop_button.clicked.connect(self.stop_capture_and_detection)
-        self.stop_button.setEnabled(False)
+        # If 'q' is pressed, break from the loop
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
 
-        # Create label for displaying video feed
-        self.video_label = QLabel(self)
-        self.video_label.setFixedSize(640, 480)  # Set label size to match video frame size
-
-        # Create vertical layout and add widgets
-        layout = QVBoxLayout()
-        layout.addWidget(self.start_button)
-        layout.addWidget(self.stop_button)
-        layout.addWidget(self.video_label)
-        self.setLayout(layout)
-
-    def start_capture_and_detection(self):
-        self.start_button.setEnabled(False)
-        self.stop_button.setEnabled(True)
-        self.camera_thread.start()
-
-    def stop_capture_and_detection(self):
-        self.camera_thread.stop_capture()
-        self.start_button.setEnabled(True)
-        self.stop_button.setEnabled(False)
-
-    def process_frame(self, frame):
-        self.processed_frame = frame
-
-        if self.model is not None:
-            frame = self.processed_frame / 255.0  # Normalize pixel values (0-1)
-            frame = np.expand_dims(frame, axis=0)  # Add batch dimension
-            predicted_labels_probabilities = self.model(frame)
-            predicted_label = np.argmax(predicted_labels_probabilities[0])
-            self.predicted_class_name = CLASSES_LIST[predicted_label]
-
-            if self.predicted_class_name == 'Violence':
-                self.show_violence_notification()
-
-        self.update_video_label()
-
-    def on_model_loaded(self, model):
-        self.model = model
-
-    def show_violence_notification(self):
-        QMessageBox.information(self, 'Violence Detected', 'Violence has been detected in the video!')
-
-    def update_video_label(self):
-        if self.processed_frame is not None:
-            frame = cv2.cvtColor(self.processed_frame, cv2.COLOR_BGR2RGB)
-            qImg = QImage(frame.data, frame.shape[1], frame.shape[0], frame.strides[0], QImage.Format_RGB888)
-            pixmap = QPixmap.fromImage(qImg)
-            self.video_label.setPixmap(pixmap)
-            self.video_label.setScaledContents(True)
-
-    def paintEvent(self, event):
-        if self.predicted_class_name:
-            painter = QPainter(self)
-            painter.setPen(Qt.red)
-            painter.setFont(QFont('Arial', 20))
-            painter.drawText(20, 40, f'Predicted: {self.predicted_class_name}')
-
-    def closeEvent(self, event):
-        self.camera_thread.quit()
-        self.model_loader_thread.quit()
-
-if __name__ == '__main__':
-    app = QApplication(sys.argv)
-    window = ViolenceDetectionApp()
-    window.show()
-    sys.exit(app.exec_())
+    # Release the camera and close all OpenCV windows
+    cap.release()
+    cv2.destroyAllWindows()

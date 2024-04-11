@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 import tensorflow as tf   
 from model_file import ModelLoaderThread
-from preview import Ui_preview  # Assuming Ui_preview is a file in your project containing UI definitions
+from preview import Ui_preview
 import mysql.connector as connector
 
 # Constants for video processing and model
@@ -57,6 +57,56 @@ class ScreenshotDialog(QDialog):
             return self.edit_text.text()
         return ""
     
+class ViolenceDetectionWorker(QThread):
+    detection_result = pyqtSignal(str, float)
+
+    def __init__(self, model, video_path):
+        super().__init__()
+        self.model = model
+        self.video_path = video_path
+
+    def run(self):
+        try:
+            frames_list = self.extract_frames(self.video_path)
+            frames_batch = self.prepare_frames(frames_list)
+            prediction = self.model(frames_batch, training=False)
+            class_name, confidence = self.process_prediction(prediction)
+            self.detection_result.emit(class_name, confidence)
+        except Exception as e:
+            print(f"Error predicting violence: {e}")
+
+    def extract_frames(self, video_path, num_frames=16):
+        frames_list = []
+        cap = cv2.VideoCapture(video_path)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        frame_indices = np.linspace(0, total_frames - 1, num_frames, dtype=int)
+
+        for idx in frame_indices:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+            ret, frame = cap.read()
+            if not ret:
+                continue
+            resized_frame = cv2.resize(frame, (64, 64))
+            normalized_frame = resized_frame.astype(np.float32) / 255.0
+            frames_list.append(normalized_frame)
+
+        # If less than num_frames frames were extracted, duplicate the last frame to match the required number
+        while len(frames_list) < num_frames:
+            frames_list.append(frames_list[-1])
+
+        cap.release()
+        return frames_list
+
+    def prepare_frames(self, frames_list):
+        frames_batch = np.stack(frames_list, axis=0)
+        return frames_batch
+
+    def process_prediction(self, prediction):
+        class_index = np.argmax(prediction)
+        class_name = CLASSES_LIST[class_index]
+        confidence = prediction[0][class_index]
+        return class_name, confidence
+
 
 
 class Preview(QWidget, Ui_preview):
@@ -78,7 +128,7 @@ class Preview(QWidget, Ui_preview):
         self.cancelView.clicked.connect(self.clear_view)
         self.deviceVid.clicked.connect(self.browse_device_video)
         self.dataVid.clicked.connect(self.browse_database_video)
-        self.draw.clicked.connect(self.ImageDraw)
+        
 
         # Update play time every second
         self.play_time_timer = QTimer(self)
@@ -95,15 +145,17 @@ class Preview(QWidget, Ui_preview):
 
         self.scene = QGraphicsScene()
 
-        self.rubberBand = QRubberBand(QRubberBand.Rectangle, self.video_widget)
-        self.rubberBand.setStyleSheet("border: 2px solid blue; background-color: rgba(0, 0, 255, 50);")
-        self.origin = QPoint()  
+        
 
         # Load violence detection model
         self.model_loader_thread = ModelLoaderThread()
         self.model_loader_thread.model_loaded.connect(self.on_model_loaded)
         self.model = None
         self.model_loader_thread.start()
+
+
+
+        self.violence_worker = None
 
     def on_model_loaded(self, model):
         self.model = model
@@ -154,113 +206,22 @@ class Preview(QWidget, Ui_preview):
         self.playerSlider.setMaximum(int(duration))  # Convert duration to integer
         self.playerSlider.setValue(int(position))  # Ensure position is also integer
 
-    @pyqtSlot()
-    def ImageDraw(self):
-        # Pause the video
-        self.player.pause()
-
-        # Show the QRubberBand
-        self.rubberBand.show()
-
-        # Connect mouse events to handle drawing of the rectangle
-        self.video_widget.mousePressEvent = self.mousePress
-        self.video_widget.mouseMoveEvent = self.mouseMove
-        self.video_widget.mouseReleaseEvent = self.mouseRelease
-
-    def mousePress(self, event):
-        if event.button() == Qt.LeftButton:
-            self.origin = event.pos()
-            self.rubberBand.setGeometry(QRect(self.origin, QSize()))
-            self.rubberBand.show()
-
-    def mouseMove(self, event):
-        if not self.origin.isNull():
-            self.rubberBand.setGeometry(QRect(self.origin, event.pos()).normalized())
-
-    def mouseRelease(self, event):
-        # Hide the QRubberBand
-        self.rubberBand.hide()
-
-        # Get the selected area
-        selected_area = self.rubberBand.geometry()
-
-        # Get the coordinates of the video content area
-        video_geometry = self.video_widget.geometry()
-
-        # Intersect the selected area with the video content area
-        selected_area.intersected(video_geometry)
-
-        # Crop the frame to the selected area
-        cropped_frame = self.video_widget.grab(selected_area)
-
-        # Convert the QPixmap to a QImage
-        cropped_image = cropped_frame.toImage()
-
-        # Convert the QImage to a QPixmap
-        cropped_pixmap = QPixmap.fromImage(cropped_image)
-
-        # Show the cropped image in a dialog for the user to name and save
-        name, ok = QInputDialog.getText(self, 'Save Image', 'Enter image name:')
-        if ok and name:
-            # Save the image to the database
-            buffer = QBuffer()
-            buffer.open(QIODevice.WriteOnly)
-            cropped_pixmap.save(buffer, "PNG")  # Save the pixmap as PNG format
-            img_data = buffer.data().toBase64().data()
-            cursor = self.connection.cursor()
-            cursor.execute("INSERT INTO picture (name, data) VALUES (%s, %s)", (name, img_data))
-            self.connection.commit()
-            QMessageBox.information(self, "Image Saved", "Image has been saved to the database.")
-
-        # Resume playing the video
-        self.player.play()
 
     def detect_violence(self, video_path):
         if self.model is None:
             print("Violence detection model not loaded.")
             return
 
-        cap = cv2.VideoCapture(video_path)
-        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        frames_list = []
+        # Cancel any existing worker
+        if self.violence_worker and self.violence_worker.isRunning():
+            self.violence_worker.quit()
+            self.violence_worker.wait()
 
-        for _ in range(frame_count):
-            ret, frame = cap.read()
-            if not ret:
-                break
+        # Create new worker
+        self.violence_worker = ViolenceDetectionWorker(self.model, video_path)
+        self.violence_worker.detection_result.connect(self.handle_detection_result)
+        self.violence_worker.start()
 
-            # Resize frame to match the expected input size of the model
-            resized_frame = cv2.resize(frame, (64, 64))
-            # Convert frame to RGB (if not already)
-            if resized_frame.shape[2] == 1:
-                resized_frame = cv2.cvtColor(resized_frame, cv2.COLOR_GRAY2RGB)
-            elif resized_frame.shape[2] == 4:
-                resized_frame = cv2.cvtColor(resized_frame, cv2.COLOR_BGRA2RGB)
-            # Normalize the resized frame
-            normalized_frame = resized_frame.astype(np.float32) / 255.0
-            # Append normalized frame to the list of frames
-            frames_list.append(normalized_frame)
-
-        cap.release()
-
-        # Stack frames along the first axis to create a batch
-        frames_batch = np.stack(frames_list, axis=0)
-
-        # Expand dimensions to match expected input shape
-        frames_batch = np.expand_dims(frames_batch, axis=0)
-
-        # Perform violence prediction using your model
-        try:
-            prediction = self.model(frames_batch)
-            predicted_class_name, confidence = self.process_prediction(prediction)
-            if predicted_class_name == 'Violence' and confidence > 0.5:
-                QMessageBox.warning(self, "Violence Detected", "Violence has been detected in the video.")
-        except Exception as e:
-            print(f"Error predicting violence: {e}")
-
-    def process_prediction(self, prediction):
-        # Assuming your prediction method returns a tuple (class_index, confidence)
-        class_index = np.argmax(prediction)
-        class_name = CLASSES_LIST[class_index]
-        confidence = prediction[0][class_index]
-        return class_name, confidence
+    def handle_detection_result(self, class_name, confidence):
+        if class_name == 'Violence' and confidence > 0.5:
+            QMessageBox.warning(self, "Violence Detected", "Violence has been detected in the video.")
