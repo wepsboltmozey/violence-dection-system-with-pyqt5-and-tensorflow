@@ -6,12 +6,11 @@ import cv2
 import mysql.connector as connector
 import re
 import numpy as np
-import tensorflow as tf
-import datetime
+from keras.models import load_model
+from datetime import datetime
 
 from facial_recognition import Facial
 from home import Ui_Home
-from model_file import ModelLoaderThread
 from view import Preview
 
 
@@ -176,56 +175,77 @@ class EditProfileDialog(QDialog):
                 connection.close()
 
 
-# Constants for video processing and model
-IMAGE_HEIGHT = 224
-IMAGE_WIDTH = 224
-CLASSES_LIST = ['Non-Violence', 'Violence']
+# Constants
+IMAGE_HEIGHT, IMAGE_WIDTH = 64, 64
+SEQUENCE_LENGTH = 10
+CLASSES_LIST = ["NonViolence", "Violence"]
+CONFIDENCE_THRESHOLD = 0.85  # Confidence threshold for model predictions
+model_path = 'C:/Users/WEP/Documents/AI/security/artificail-eye/violence3.keras'
+video_output_path = 'C:/Users/WEP/Documents/AI/security/artificail-eye/sreenshot/output.mp4'
 
-class CameraThread(QThread):
-    frame_processed = pyqtSignal(np.ndarray)
-    update_start_time = pyqtSignal(str)
-    update_elapsed_time = pyqtSignal(str)
-    update_date = pyqtSignal(str)
+# model thread 
+
+class VideoThread(QThread):
+    change_pixmap_signal = pyqtSignal(np.ndarray)
+    alert_signal = pyqtSignal()
 
     def __init__(self):
         super().__init__()
-        self.is_capturing = False
-        self.start_time = None
+        self._run_flag = True
+        self.model = load_model(model_path)
+        self.video_writer = None
+        self.violence_detected = False
 
     def run(self):
-        self.cap = cv2.VideoCapture(0)
-        self.is_capturing = True
-        self.start_time = datetime.datetime.now()
-        self.update_start_time.emit(self.start_time.strftime("%H:%M:%S")) 
-        while self.is_capturing:
-            ret, frame = self.cap.read()
-            if not ret:
+        video_reader = cv2.VideoCapture(0)
+        frames_list = []
+        ret, frame = video_reader.read()
+        if ret:
+            height, width, channels = frame.shape
+            self.video_writer = cv2.VideoWriter(video_output_path, cv2.VideoWriter_fourcc(*'mp4v'), 20, (width, height))
+
+        while self._run_flag:
+            success, cv_img = video_reader.read()
+            if success:
+                self.change_pixmap_signal.emit(cv_img)
+                self.video_writer.write(cv_img)  # Write frame to video file
+                resized_frame = cv2.resize(cv_img, (IMAGE_HEIGHT, IMAGE_WIDTH))
+                normalized_frame = resized_frame / 255
+                frames_list.append(normalized_frame)
+                if len(frames_list) == SEQUENCE_LENGTH:
+                    predicted_labels_probabilities = self.model.predict(np.expand_dims(frames_list, axis=0))[0]
+                    predicted_label = np.argmax(predicted_labels_probabilities)
+                    predicted_class_name = CLASSES_LIST[predicted_label]
+                    frames_list.pop(0)
+                    # Check if prediction confidence is above the threshold before sending an alert
+                    if predicted_class_name == "Violence" and not self.violence_detected and predicted_labels_probabilities[predicted_label] >= CONFIDENCE_THRESHOLD:
+                        self.violence_detected = True
+                        self.alert_signal.emit()
+            else:
                 break
-            resized_frame = cv2.resize(frame, (IMAGE_WIDTH, IMAGE_HEIGHT))
-            self.frame_processed.emit(resized_frame)
-            elapsed_time = datetime.datetime.now() - self.start_time
-            self.update_elapsed_time.emit(str(elapsed_time))
-            current_date = datetime.datetime.now().strftime("%m/%d/%y")
-            self.update_date.emit(current_date)
-            self.msleep(5)
+        video_reader.release()
+        self.video_writer.release()
 
-    def stop_capture(self):
-        self.is_capturing = False
-        self.cap.release()
-
-    def get_start_time(self):
-        return self.start_time
-
-    def get_elapsed_time(self):
-        return datetime.datetime.now() - self.start_time if self.start_time else None
+    def stop(self):
+        self._run_flag = False
+        self.wait()
 
 
-
+# home widget manager 
 class HomeWidget(QWidget, Ui_Home):
     def __init__(self):
         super().__init__()
         self.setupUi(self)
-        self.setWindowTitle("INTELLIGENT CAMERA SYSTEM")
+        self.setWindowTitle("SMART CAMERA SYSTEM")
+        self.start_time = None
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.update_time)
+        self.connection = connector.connect(
+            host="localhost",
+            user="root",
+            password="",
+            database="cameradb"
+        )
         
     
         self.label_2.mousePressEvent = self.show_menu
@@ -233,9 +253,6 @@ class HomeWidget(QWidget, Ui_Home):
         self.edit_profile_dialog = EditProfileDialog(self.user_details)
         self.edit_profile_dialog.user_details_updated.connect(self.update_user_details)
      
-        self.start.clicked.connect(self.start_capture_and_detection)
-        self.stop.clicked.connect(self.stop_capture_and_detection)
-
 
         # Connect button clicks to functions
         self.homebutton.clicked.connect(self.show_home_widget)
@@ -250,22 +267,7 @@ class HomeWidget(QWidget, Ui_Home):
        
 
 
-        # Video processing variables
-        self.camera_thread = CameraThread()
-        self.model = None  # Initialize model as None
-        self.model_loader_thread = ModelLoaderThread()
-
-        # Connect signals
-        self.camera_thread.frame_processed.connect(self.process_frame)
-        self.model_loader_thread.model_loaded.connect(self.on_model_loaded)
-        self.camera_thread.update_start_time.connect(self.startTime.setText)
-        self.camera_thread.update_elapsed_time.connect(self.timeOn.setText)
-        self.camera_thread.update_date.connect(self.date.setText)
-
-        # Variables for processed frame and prediction
-        self.processed_frame = None
-        self.predicted_class_name = ''
-
+        
 
         # set playing area 
         self.camera.setLayout(QVBoxLayout())
@@ -274,16 +276,68 @@ class HomeWidget(QWidget, Ui_Home):
 
         self.user_details = {}
 
+        self.start.clicked.connect(self.start_video)
+        self.stop.clicked.connect(self.stop_video)
+
+
+        # Set dialog for violence detection alert
+        self.alert_dialog = QDialog(self)
+        self.alert_dialog.setWindowTitle('Alert')
+        self.alert_label = QLabel('Violence detected!', self.alert_dialog)
+        self.alert_dialog.setLayout(QVBoxLayout())
+        self.alert_dialog.layout().addWidget(self.alert_label)
+
+        self.show()
+
       
 
-    def update_start_time_label(self, start_time):
-        self.startTime.setText(start_time)
+    @pyqtSlot(np.ndarray)
+    def update_camera_label(self, cv_img):
+        qt_img = self.convert_cv_qt(cv_img)
+        self.videoView.setPixmap(qt_img)
 
-    def update_elapsed_time_label(self, elapsed_time):
-        self.timeOn.setText(elapsed_time)
+    def convert_cv_qt(self, cv_img):
+        rgb_image = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
+        h, w, ch = rgb_image.shape
+        bytes_per_line = ch * w
+        convert_to_Qt_format = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888)
+        p = convert_to_Qt_format.scaled(640, 480, Qt.KeepAspectRatio)
+        return QPixmap.fromImage(p)
 
-    def update_date_label(self, current_date):
-        self.date.setText(current_date)    
+    @pyqtSlot()
+    def update_alert(self):
+        self.alert_dialog.show()
+
+    def start_video(self):
+        self.start_time = datetime.now()
+        self.startTime.setText(self.start_time.strftime('%H:%M:%S'))
+        self.date.setText(self.start_time.strftime('%Y-%m-%d'))
+        self.timer.start(1000) 
+
+        self.thread = VideoThread()
+        self.thread.change_pixmap_signal.connect(self.update_camera_label)
+        self.thread.alert_signal.connect(self.update_alert)
+        self.thread.start()
+
+    def stop_video(self):
+        if self.thread.isRunning():
+            self.thread.stop()
+        self.timer.stop()
+        self.save_video_data()
+
+    def update_time(self):
+        elapsed_time = datetime.now() - self.start_time
+        self.timeOn.setText(str(elapsed_time).split('.')[0])
+
+    def save_video_data(self):
+        cursor = self.connection.cursor()
+        elapsed_time = datetime.now() - self.start_time
+        # Save the video file path to the database
+        cursor.execute("INSERT INTO video (starttime, date, timetaken, videofile) VALUES (%s, %s, %s, %s)",
+                       (self.start_time.strftime('%Y-%m-%d %H:%M:%S'), self.start_time.date(), str(elapsed_time).split('.')[0], video_output_path))
+        self.connection.commit()
+        cursor.close()
+    
 
     def set_user_details(self, user_details):
         self.user_details = user_details
@@ -296,61 +350,6 @@ class HomeWidget(QWidget, Ui_Home):
             user_photo = QPixmap(user_photo_path)
             rounded_photo = self.create_rounded_pixmap(user_photo)
             self.label_2.setPixmap(rounded_photo)
-        # You can update other user details here if needed
-
-    def start_capture_and_detection(self):
-        self.start.setEnabled(False)
-        self.stop.setEnabled(True)
-        self.camera_thread.start()
-
-    def stop_capture_and_detection(self):
-        self.camera_thread.stop_capture()
-        self.start.setEnabled(True)
-        self.stop.setEnabled(False)
-
-    def process_frame(self, frame):
-        self.processed_frame = frame
-
-        if self.model is not None:
-            frame = self.processed_frame / 255.0  # Normalize pixel values (0-1)
-            frame = np.expand_dims(frame, axis=0)  # Add batch dimension
-            predicted_labels_probabilities = self.model(frame)
-            predicted_label = np.argmax(predicted_labels_probabilities[0])
-            self.predicted_class_name = CLASSES_LIST[predicted_label]
-
-            if self.predicted_class_name == 'Violence':
-                self.show_violence_notification()
-
-        self.update_video_label()
-
-    def on_model_loaded(self, model):
-        self.model = model
-
-    def show_violence_notification(self):
-        QMessageBox.information(self, 'Violence Detected', 'Violence has been detected in the video!')
-
-    def update_video_label(self):
-        if self.processed_frame is not None:
-            frame = cv2.cvtColor(self.processed_frame, cv2.COLOR_BGR2RGB)
-            qImg = QImage(frame.data, frame.shape[1], frame.shape[0], frame.strides[0], QImage.Format_RGB888)
-            pixmap = QPixmap.fromImage(qImg)
-            self.videoView.setPixmap(pixmap)
-            self.videoView.setScaledContents(True)
-
-    def paintEvent(self, event):
-        if self.predicted_class_name:
-            painter = QPainter(self)
-            painter.setPen(Qt.red)
-            painter.setFont(QFont('Arial', 20))
-            painter.drawText(20, 40, f'Predicted: {self.predicted_class_name}')
-
-    def closeEvent(self, event):
-        self.camera_thread.quit()
-        self.model_loader_thread.quit()    
-
-
-
-    # end of detection 
 
 
     def show_home_widget(self):

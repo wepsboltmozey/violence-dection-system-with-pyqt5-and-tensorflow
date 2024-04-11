@@ -8,14 +8,15 @@ from PyQt5.QtGui import *
 import cv2
 import numpy as np
 import tensorflow as tf   
-from model_file import ModelLoaderThread
+from keras.models import load_model
 from preview import Ui_preview
 import mysql.connector as connector
 
-# Constants for video processing and model
-IMAGE_HEIGHT = 224
-IMAGE_WIDTH = 224
-CLASSES_LIST = ['Non-Violence', 'Violence']
+IMAGE_HEIGHT, IMAGE_WIDTH = 64, 64
+SEQUENCE_LENGTH = 10
+CLASSES_LIST = ["NonViolence", "Violence"]
+model_path = 'C:/Users/WEP/Documents/AI/security/artificail-eye/violence3.keras'
+
 
 class VideoDialog(QDialog):
     def __init__(self, videos):
@@ -57,56 +58,40 @@ class ScreenshotDialog(QDialog):
             return self.edit_text.text()
         return ""
     
-class ViolenceDetectionWorker(QThread):
-    detection_result = pyqtSignal(str, float)
+class VideoThread(QThread):
+    change_pixmap_signal = pyqtSignal(np.ndarray)
 
-    def __init__(self, model, video_path):
+    def __init__(self, video_path):
         super().__init__()
-        self.model = model
+        self._run_flag = True
         self.video_path = video_path
+        self.model = load_model(model_path)
 
     def run(self):
-        try:
-            frames_list = self.extract_frames(self.video_path)
-            frames_batch = self.prepare_frames(frames_list)
-            prediction = self.model(frames_batch, training=False)
-            class_name, confidence = self.process_prediction(prediction)
-            self.detection_result.emit(class_name, confidence)
-        except Exception as e:
-            print(f"Error predicting violence: {e}")
-
-    def extract_frames(self, video_path, num_frames=16):
+        video_reader = cv2.VideoCapture(self.video_path)
         frames_list = []
-        cap = cv2.VideoCapture(video_path)
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        frame_indices = np.linspace(0, total_frames - 1, num_frames, dtype=int)
 
-        for idx in frame_indices:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-            ret, frame = cap.read()
-            if not ret:
-                continue
-            resized_frame = cv2.resize(frame, (64, 64))
-            normalized_frame = resized_frame.astype(np.float32) / 255.0
-            frames_list.append(normalized_frame)
+        while self._run_flag:
+            success, cv_img = video_reader.read()
+            if success:
+                resized_frame = cv2.resize(cv_img, (IMAGE_HEIGHT, IMAGE_WIDTH))
+                normalized_frame = resized_frame / 255
+                frames_list.append(normalized_frame)
+                if len(frames_list) == SEQUENCE_LENGTH:
+                    predicted_labels_probabilities = self.model.predict(np.expand_dims(frames_list, axis=0))[0]
+                    predicted_label = np.argmax(predicted_labels_probabilities)
+                    predicted_class_name = CLASSES_LIST[predicted_label]
+                    frames_list.pop(0)
+                    if predicted_class_name == "Violence":
+                        self.change_pixmap_signal.emit(cv_img)
+                        break
+            else:
+                break
+        video_reader.release()
 
-        # If less than num_frames frames were extracted, duplicate the last frame to match the required number
-        while len(frames_list) < num_frames:
-            frames_list.append(frames_list[-1])
-
-        cap.release()
-        return frames_list
-
-    def prepare_frames(self, frames_list):
-        frames_batch = np.stack(frames_list, axis=0)
-        return frames_batch
-
-    def process_prediction(self, prediction):
-        class_index = np.argmax(prediction)
-        class_name = CLASSES_LIST[class_index]
-        confidence = prediction[0][class_index]
-        return class_name, confidence
-
+    def stop(self):
+        self._run_flag = False
+        self.wait()
 
 
 class Preview(QWidget, Ui_preview):
@@ -116,7 +101,7 @@ class Preview(QWidget, Ui_preview):
 
         # Initialize media player and video widget
         self.view.setLayout(QVBoxLayout())
-        self.player = QMediaPlayer()
+        self.player = QMediaPlayer(None, QMediaPlayer.VideoSurface)
         self.video_widget = QVideoWidget()
         self.player.setVideoOutput(self.video_widget)
         self.view.layout().addWidget(self.video_widget)
@@ -126,8 +111,8 @@ class Preview(QWidget, Ui_preview):
         self.pause.clicked.connect(self.toggle_play)
         self.playerSlider.sliderMoved.connect(self.set_position)
         self.cancelView.clicked.connect(self.clear_view)
-        self.deviceVid.clicked.connect(self.browse_device_video)
-        self.dataVid.clicked.connect(self.browse_database_video)
+        self.deviceVid.clicked.connect(self.start_video)
+        # self.dataVid.clicked.connect(self.browse_database_video)
         
 
         # Update play time every second
@@ -145,20 +130,38 @@ class Preview(QWidget, Ui_preview):
 
         self.scene = QGraphicsScene()
 
+
+        # Set dialog for violence detection alert
+        self.alert_dialog = QDialog(self)
+        self.alert_dialog.setWindowTitle('Alert')
+        self.alert_label = QLabel('Violence detected!', self.alert_dialog)
+        self.alert_dialog.setLayout(QVBoxLayout())
+        self.alert_dialog.layout().addWidget(self.alert_label)
+
         
-
-        # Load violence detection model
-        self.model_loader_thread = ModelLoaderThread()
-        self.model_loader_thread.model_loaded.connect(self.on_model_loaded)
-        self.model = None
-        self.model_loader_thread.start()
+        self.show()
 
 
+    @pyqtSlot(np.ndarray)
+    def update_alert(self, image):
+        self.alert_dialog.show()
 
-        self.violence_worker = None
+    def start_video(self):
+        video_path, _ = QFileDialog.getOpenFileName(self, "Open Video", "", "Video Files (*.mp4 *.flv *.ts *.mts *.avi)")
+        if video_path != '':
+            self.player.setMedia(QMediaContent(QUrl.fromLocalFile(video_path)))
+            self.player.play()
+            self.thread = VideoThread(video_path)
+            self.thread.change_pixmap_signal.connect(self.update_alert)
+            self.thread.start()
 
-    def on_model_loaded(self, model):
-        self.model = model
+    def stop_video(self):
+        self.player.stop()
+        if self.thread.isRunning():
+            self.thread.stop()
+    
+
+        
 
     def toggle_play(self):
         if self.player.state() == QMediaPlayer.PlayingState:
@@ -173,31 +176,21 @@ class Preview(QWidget, Ui_preview):
         self.scene.clear()
         self.player.stop()
 
-    def browse_device_video(self):
-        video_path, _ = QFileDialog.getOpenFileName(self, "Open Video", "", "Video Files (*.mp4 *.avi *.mkv)")
-        if video_path:
-            self.player.setMedia(QMediaContent(QUrl.fromLocalFile(video_path)))
-            self.player.play()
-            # Check for playback errors
-            if self.player.error():
-                error_message = self.player.errorString()
-                print(f"Error playing video: {error_message}")
-            else:
-                self.detect_violence(video_path)
+    
 
-    def browse_database_video(self):
-        cursor = self.connection.cursor()
-        cursor.execute("SELECT id, VideoFile FROM video")
-        videos = cursor.fetchall()
+    # def browse_database_video(self):
+    #     cursor = self.connection.cursor()
+    #     cursor.execute("SELECT id, VideoFile FROM video")
+    #     videos = cursor.fetchall()
 
-        dialog = VideoDialog(videos)
-        if dialog.exec() == QDialog.Accepted:
-            video_id = dialog.list_widget.currentItem().data(Qt.UserRole)
-            cursor.execute("SELECT path FROM video WHERE id = %s", (video_id,))
-            path = cursor.fetchone()[0]
-            self.player.setMedia(QMediaContent(QUrl.fromLocalFile(path)))
-            self.player.play()
-            self.detect_violence(path)
+    #     dialog = VideoDialog(videos)
+    #     if dialog.exec() == QDialog.Accepted:
+    #         video_id = dialog.list_widget.currentItem().data(Qt.UserRole)
+    #         cursor.execute("SELECT path FROM video WHERE id = %s", (video_id,))
+    #         path = cursor.fetchone()[0]
+    #         self.player.setMedia(QMediaContent(QUrl.fromLocalFile(path)))
+    #         self.player.play()
+    #         self.(path)
 
     def update_play_time(self):
         position = self.player.position() / 1000
@@ -207,21 +200,4 @@ class Preview(QWidget, Ui_preview):
         self.playerSlider.setValue(int(position))  # Ensure position is also integer
 
 
-    def detect_violence(self, video_path):
-        if self.model is None:
-            print("Violence detection model not loaded.")
-            return
-
-        # Cancel any existing worker
-        if self.violence_worker and self.violence_worker.isRunning():
-            self.violence_worker.quit()
-            self.violence_worker.wait()
-
-        # Create new worker
-        self.violence_worker = ViolenceDetectionWorker(self.model, video_path)
-        self.violence_worker.detection_result.connect(self.handle_detection_result)
-        self.violence_worker.start()
-
-    def handle_detection_result(self, class_name, confidence):
-        if class_name == 'Violence' and confidence > 0.5:
-            QMessageBox.warning(self, "Violence Detected", "Violence has been detected in the video.")
+    

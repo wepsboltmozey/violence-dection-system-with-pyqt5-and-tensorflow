@@ -2,9 +2,9 @@ from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 
-from facial_recognition import Facial
+# from facial_recognition import Facial
 from home_widget import HomeWidget
-from view import Preview
+
 from welcome_widget import Ui_welcome
 
 from login import Ui_login
@@ -190,8 +190,7 @@ class Welcome(QWidget, Ui_welcome):
         self.login_widget = Login()
         self.login_widget.login_successful.connect(self.login_success_handler)
 
-        self.preview = Preview()
-        self.facial = Facial()
+       
         self.Home = HomeWidget()
 
         self.login.clicked.connect(self.show_login_widget)
