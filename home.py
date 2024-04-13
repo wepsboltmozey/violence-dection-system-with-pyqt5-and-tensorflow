@@ -5,7 +5,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 class Ui_Home(object):
     def setupUi(self, Home):
         Home.setObjectName("Home")
-        Home.resize(1096, 455)
+        Home.resize(1100, 455)
         font = QtGui.QFont()
         font.setPointSize(10)
         font.setBold(True)
@@ -88,66 +88,27 @@ class Ui_Home(object):
 "}\n"
 "")
         self.preview.setObjectName("preview")
-        self.analysisbutton = QtWidgets.QPushButton(self.Button)
-        self.analysisbutton.setGeometry(QtCore.QRect(370, 10, 131, 31))
+        self.alertN = QtWidgets.QPushButton(self.Button)
+        self.alertN.setGeometry(QtCore.QRect(370, 10, 131, 31))
         font = QtGui.QFont()
         font.setPointSize(10)
         font.setBold(True)
-        self.analysisbutton.setFont(font)
-        self.analysisbutton.setStyleSheet("#analysisbutton{\n"
+        self.alertN.setFont(font)
+        self.alertN.setStyleSheet("#alertN{\n"
 "background-color: rgb(48, 131, 59);\n"
 "border-radius: 15px;\n"
 "color: white;\n"
 "padding: 10px 20px;\n"
 "}\n"
 "\n"
-"#analysisbutton:hover {\n"
+"#alertN:hover {\n"
 "background-color: #0D1E40;\n"
 "border-radius: 15px;\n"
 "color: white;\n"
 "}\n"
 "")
-        self.analysisbutton.setObjectName("analysisbutton")
-        self.facialbutton = QtWidgets.QPushButton(self.Button)
-        self.facialbutton.setGeometry(QtCore.QRect(530, 10, 181, 31))
-        font = QtGui.QFont()
-        font.setPointSize(10)
-        font.setBold(True)
-        self.facialbutton.setFont(font)
-        self.facialbutton.setStyleSheet("#facialbutton{\n"
-"background-color: rgb(48, 131, 59);\n"
-"border-radius: 15px;\n"
-"color: white;\n"
-"padding: 10px 20px;\n"
-"}\n"
-"\n"
-"#facialbutton:hover {\n"
-"background-color: #0D1E40;\n"
-"border-radius: 15px;\n"
-"color: white;\n"
-"}\n"
-"")
-        self.facialbutton.setObjectName("facialbutton")
-        self.notificationsbutton = QtWidgets.QPushButton(self.Button)
-        self.notificationsbutton.setGeometry(QtCore.QRect(740, 10, 121, 31))
-        font = QtGui.QFont()
-        font.setPointSize(10)
-        font.setBold(True)
-        self.notificationsbutton.setFont(font)
-        self.notificationsbutton.setStyleSheet("#notificationsbutton{\n"
-"background-color: rgb(48, 131, 59);\n"
-"border-radius: 15px;\n"
-"color: white;\n"
-"padding: 10px 20px;\n"
-"}\n"
-"\n"
-"#notificationsbutton:hover {\n"
-"background-color: #0D1E40;\n"
-"border-radius: 15px;\n"
-"color: white;\n"
-"}\n"
-"")
-        self.notificationsbutton.setObjectName("notificationsbutton")
+        self.alertN.setObjectName("alertN")
+        
         self.mainWidget = QtWidgets.QWidget(Home)
         self.mainWidget.setGeometry(QtCore.QRect(0, 130, 1100, 541))
         self.mainWidget.setStyleSheet("#mainWidget{\n"
@@ -167,7 +128,7 @@ class Ui_Home(object):
         self.camera.setStyleSheet("\n"
 "\n"
 "#camera{\n"
-"border-raduis: 20;\n"
+"border-radius: 20;\n"
 "background-color: rgb(13, 30, 64);\n"
 "color: rgb(255, 255, 255);\n"
 "}")
@@ -255,11 +216,7 @@ class Ui_Home(object):
         self.title.setText(_translate("Home", "SMART CAMERA SYSTEM"))
         self.homebutton.setText(_translate("Home", "Home"))
         self.preview.setText(_translate("Home", "preview"))
-        self.analysisbutton.setText(_translate("Home", "message"))
-        self.facialbutton.setText(_translate("Home", "Facial Recorgnition"))
-        self.notificationsbutton.setText(_translate("Home", "Notifications"))
-        # self.start.setText(_translate("Home", "start"))
-        # self.cam_label.setText(_translate("Home", "click to start camera"))
+        self.alertN.setText(_translate("Home", "Alerts"))
         self.label_3.setText(_translate("Home", "Time on"))
         self.timeOn.setText(_translate("Home", "04:23:12"))
         self.label_4.setText(_translate("Home", "Date "))

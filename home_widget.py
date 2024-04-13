@@ -1,6 +1,7 @@
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
+from PyQt5.QtMultimedia import QSound
 
 import cv2
 import mysql.connector as connector
@@ -8,9 +9,8 @@ import re
 import numpy as np
 from keras.models import load_model
 from datetime import datetime
-
-from facial_recognition import Facial
 from home import Ui_Home
+from notify import Alert
 from view import Preview
 
 
@@ -177,38 +177,37 @@ class EditProfileDialog(QDialog):
 
 # Constants
 IMAGE_HEIGHT, IMAGE_WIDTH = 64, 64
-SEQUENCE_LENGTH = 10
+SEQUENCE_LENGTH = 5
 CLASSES_LIST = ["NonViolence", "Violence"]
-CONFIDENCE_THRESHOLD = 0.85  # Confidence threshold for model predictions
-model_path = 'C:/Users/WEP/Documents/AI/security/artificail-eye/violence3.keras'
-video_output_path = 'C:/Users/WEP/Documents/AI/security/artificail-eye/sreenshot/output.mp4'
+CONFIDENCE_THRESHOLD = 0.90
+VIDEO_OUTPUT_DIR = 'C:/Users/WEP/Documents/AI/security/artificail-eye/video/'
+model_path = 'C:/Users/WEP/Documents/AI/security/artificail-eye/model/violence3.keras'
 
-# model thread 
 
+# VideoThread class
 class VideoThread(QThread):
     change_pixmap_signal = pyqtSignal(np.ndarray)
     alert_signal = pyqtSignal()
+    video_saved_signal = pyqtSignal(str)
 
-    def __init__(self):
+    def __init__(self, model_path):
         super().__init__()
         self._run_flag = True
         self.model = load_model(model_path)
         self.video_writer = None
         self.violence_detected = False
+        self.video_filename = ""
 
     def run(self):
         video_reader = cv2.VideoCapture(0)
         frames_list = []
-        ret, frame = video_reader.read()
-        if ret:
-            height, width, channels = frame.shape
-            self.video_writer = cv2.VideoWriter(video_output_path, cv2.VideoWriter_fourcc(*'mp4v'), 20, (width, height))
 
         while self._run_flag:
             success, cv_img = video_reader.read()
             if success:
                 self.change_pixmap_signal.emit(cv_img)
-                self.video_writer.write(cv_img)  # Write frame to video file
+                if self.video_writer is not None:
+                    self.video_writer.write(cv_img)  # Write frame to video file
                 resized_frame = cv2.resize(cv_img, (IMAGE_HEIGHT, IMAGE_WIDTH))
                 normalized_frame = resized_frame / 255
                 frames_list.append(normalized_frame)
@@ -217,25 +216,36 @@ class VideoThread(QThread):
                     predicted_label = np.argmax(predicted_labels_probabilities)
                     predicted_class_name = CLASSES_LIST[predicted_label]
                     frames_list.pop(0)
-                    # Check if prediction confidence is above the threshold before sending an alert
                     if predicted_class_name == "Violence" and not self.violence_detected and predicted_labels_probabilities[predicted_label] >= CONFIDENCE_THRESHOLD:
                         self.violence_detected = True
                         self.alert_signal.emit()
             else:
                 break
+
         video_reader.release()
-        self.video_writer.release()
+        if self.video_writer is not None:
+            self.video_writer.release()
+            self.video_saved_signal.emit(self.video_filename)
+
+    def start_recording(self, filename):
+        self.video_filename = filename
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        self.video_writer = cv2.VideoWriter(self.video_filename, fourcc, 20.0, (640, 480))
 
     def stop(self):
         self._run_flag = False
         self.wait()
-
+        if self.video_writer is not None:
+            self.video_writer.release()
+            self.video_writer = None
+            self.video_saved_signal.emit(self.video_filename)
 
 # home widget manager 
 class HomeWidget(QWidget, Ui_Home):
     def __init__(self):
         super().__init__()
         self.setupUi(self)
+        self.setFixedSize(1100,670)
         self.setWindowTitle("SMART CAMERA SYSTEM")
         self.start_time = None
         self.timer = QTimer()
@@ -257,12 +267,16 @@ class HomeWidget(QWidget, Ui_Home):
         # Connect button clicks to functions
         self.homebutton.clicked.connect(self.show_home_widget)
         self.preview.clicked.connect(self.show_preview_widget)
-        self.facialbutton.clicked.connect(self.show_facial_widget)
+        self.alertN.clicked.connect(self.show_alerts_widget)
+        
+        
         
 
     
         self.preview = Preview()
-        self.facial = Facial()
+        self.alerts = Alert()
+       
+       
       
        
 
@@ -272,7 +286,10 @@ class HomeWidget(QWidget, Ui_Home):
         # set playing area 
         self.camera.setLayout(QVBoxLayout())
         self.videoView = QLabel()
-        self.camera.layout().addWidget(self.videoView, stretch=1)
+        self.videoView.setScaledContents(True) 
+        self.videoView.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding) 
+        self.camera.layout().addWidget(self.videoView)
+
 
         self.user_details = {}
 
@@ -287,10 +304,10 @@ class HomeWidget(QWidget, Ui_Home):
         self.alert_dialog.setLayout(QVBoxLayout())
         self.alert_dialog.layout().addWidget(self.alert_label)
 
-        self.show()
+        
+        
 
-      
-
+    
     @pyqtSlot(np.ndarray)
     def update_camera_label(self, cv_img):
         qt_img = self.convert_cv_qt(cv_img)
@@ -306,24 +323,50 @@ class HomeWidget(QWidget, Ui_Home):
 
     @pyqtSlot()
     def update_alert(self):
+        # Play an alarm sound when violence is detected
+        self.alert_sound = QSound('C:/Users/WEP/Documents/AI/security/artificail-eye/resources/Alarm.wav')
+        self.alert_sound.play()
         self.alert_dialog.show()
+        cursor = self.connection.cursor()
+        cursor.execute("INSERT INTO notification (datetime, notification, file) VALUES (%s, %s, %s)",
+                       (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), 'Violence detected', self.video_filename))
+        self.connection.commit()
+        cursor.close()
+
 
     def start_video(self):
         self.start_time = datetime.now()
         self.startTime.setText(self.start_time.strftime('%H:%M:%S'))
         self.date.setText(self.start_time.strftime('%Y-%m-%d'))
-        self.timer.start(1000) 
+        self.timer.start(1000)
 
-        self.thread = VideoThread()
+        # # Generate a unique filename for each video recording
+        self.video_filename = f"{VIDEO_OUTPUT_DIR}{self.start_time.strftime('%Y%m%d_%H%M%S')}.mp4"
+        # self.video_thread.start_recording(self.video_filename)
+
+        self.thread = VideoThread(model_path)
         self.thread.change_pixmap_signal.connect(self.update_camera_label)
         self.thread.alert_signal.connect(self.update_alert)
+        self.thread.video_saved_signal.connect(self.on_video_saved)
         self.thread.start()
+        self.thread.start_recording(self.video_filename)
 
     def stop_video(self):
         if self.thread.isRunning():
             self.thread.stop()
         self.timer.stop()
         self.save_video_data()
+
+        # Check if an alert was triggered and save the alert information with the video
+        if self.thread.violence_detected:
+            cursor = self.connection.cursor()
+            cursor.execute("INSERT INTO notification (datetime, notification, file) VALUES (%s, %s, %s)",
+                        (self.start_time.strftime('%Y-%m-%d %H:%M:%S'), 'Violence detected', self.video_filename))
+            self.connection.commit()
+            cursor.close()
+
+    def on_video_saved(self, filename):
+        print(f"Video saved: {filename}")
 
     def update_time(self):
         elapsed_time = datetime.now() - self.start_time
@@ -334,7 +377,7 @@ class HomeWidget(QWidget, Ui_Home):
         elapsed_time = datetime.now() - self.start_time
         # Save the video file path to the database
         cursor.execute("INSERT INTO video (starttime, date, timetaken, videofile) VALUES (%s, %s, %s, %s)",
-                       (self.start_time.strftime('%Y-%m-%d %H:%M:%S'), self.start_time.date(), str(elapsed_time).split('.')[0], video_output_path))
+                       (self.start_time.strftime('%Y-%m-%d %H:%M:%S'), self.start_time.date(), str(elapsed_time).split('.')[0], self.video_filename))
         self.connection.commit()
         cursor.close()
     
@@ -355,26 +398,23 @@ class HomeWidget(QWidget, Ui_Home):
     def show_home_widget(self):
         self.mainWidget.show()
         self.preview.hide()
-        self.facial.hide()
+        self.alerts.hide()
+        
         
 
     def show_preview_widget(self):
         self.preview.setParent(self.mainWidget.parent())
         self.mainWidget.hide()
-        self.facial.hide()
-        # self.edit.hide()
+        self.alerts.hide()
         self.preview.setGeometry(self.mainWidget.geometry())
         self.preview.show()
-        
 
-    def show_facial_widget(self):
-        self.facial.setParent(self.mainWidget.parent())
+    def show_alerts_widget(self):
+        self.alerts.setParent(self.mainWidget.parent())
         self.mainWidget.hide()
         self.preview.hide()
-        # self.edit.hide()
-        self.facial.setGeometry(self.mainWidget.geometry())
-        self.facial.show()
-
+        self.alerts.setGeometry(self.mainWidget.geometry())
+        self.alerts.show()    
    
 
     def show_menu(self, event):
@@ -403,7 +443,6 @@ class HomeWidget(QWidget, Ui_Home):
 
 
     def sign_out(self):
-        self.camera_thread.stop_capture()
         self.hide()
 
     def create_rounded_pixmap(self, pixmap):

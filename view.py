@@ -7,7 +7,6 @@ from PyQt5.QtMultimedia import *
 from PyQt5.QtGui import *
 import cv2
 import numpy as np
-import tensorflow as tf   
 from keras.models import load_model
 from preview import Ui_preview
 import mysql.connector as connector
@@ -15,7 +14,7 @@ import mysql.connector as connector
 IMAGE_HEIGHT, IMAGE_WIDTH = 64, 64
 SEQUENCE_LENGTH = 10
 CLASSES_LIST = ["NonViolence", "Violence"]
-model_path = 'C:/Users/WEP/Documents/AI/security/artificail-eye/violence3.keras'
+model_path = 'C:/Users/WEP/Documents/AI/security/artificail-eye/model/violence3.keras'
 
 
 class VideoDialog(QDialog):
@@ -32,7 +31,9 @@ class VideoDialog(QDialog):
 
     def populate_list(self):
         for video in self.videos:
-            item = QListWidgetItem(video[1])
+            # Convert the date and start time to string and use as the item text
+            video_name = f"{video[2].strftime('%Y-%m-%d')} {video[3]}"
+            item = QListWidgetItem(video_name)
             item.setData(Qt.UserRole, video[0])  # Store video ID as item data
             self.list_widget.addItem(item)
 
@@ -40,23 +41,7 @@ class VideoDialog(QDialog):
         video_id = item.data(Qt.UserRole)
         self.accept()
 
-class ScreenshotDialog(QDialog):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("Enter Screenshot Name")
-        layout = QVBoxLayout()
-        self.edit_text = QLineEdit()
-        layout.addWidget(self.edit_text)
-        button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
-        button_box.accepted.connect(self.accept)
-        button_box.rejected.connect(self.reject)
-        layout.addWidget(button_box)
-        self.setLayout(layout)
 
-    def get_screenshot_name(self):
-        if self.exec() == QDialog.Accepted:
-            return self.edit_text.text()
-        return ""
     
 class VideoThread(QThread):
     change_pixmap_signal = pyqtSignal(np.ndarray)
@@ -112,7 +97,7 @@ class Preview(QWidget, Ui_preview):
         self.playerSlider.sliderMoved.connect(self.set_position)
         self.cancelView.clicked.connect(self.clear_view)
         self.deviceVid.clicked.connect(self.start_video)
-        # self.dataVid.clicked.connect(self.browse_database_video)
+        self.dataVid.clicked.connect(self.browse_database_video)
         
 
         # Update play time every second
@@ -139,8 +124,6 @@ class Preview(QWidget, Ui_preview):
         self.alert_dialog.layout().addWidget(self.alert_label)
 
         
-        self.show()
-
 
     @pyqtSlot(np.ndarray)
     def update_alert(self, image):
@@ -161,8 +144,6 @@ class Preview(QWidget, Ui_preview):
             self.thread.stop()
     
 
-        
-
     def toggle_play(self):
         if self.player.state() == QMediaPlayer.PlayingState:
             self.player.pause()
@@ -177,27 +158,32 @@ class Preview(QWidget, Ui_preview):
         self.player.stop()
 
     
+    def browse_database_video(self):
+        cursor = self.connection.cursor()
+        # Include date and start time in the SELECT query
+        cursor.execute("SELECT id, VideoFile, Date, StartTime FROM video")
+        videos = cursor.fetchall()
 
-    # def browse_database_video(self):
-    #     cursor = self.connection.cursor()
-    #     cursor.execute("SELECT id, VideoFile FROM video")
-    #     videos = cursor.fetchall()
-
-    #     dialog = VideoDialog(videos)
-    #     if dialog.exec() == QDialog.Accepted:
-    #         video_id = dialog.list_widget.currentItem().data(Qt.UserRole)
-    #         cursor.execute("SELECT path FROM video WHERE id = %s", (video_id,))
-    #         path = cursor.fetchone()[0]
-    #         self.player.setMedia(QMediaContent(QUrl.fromLocalFile(path)))
-    #         self.player.play()
-    #         self.(path)
+        dialog = VideoDialog(videos)
+        if dialog.exec() == QDialog.Accepted:
+            video_id = dialog.list_widget.currentItem().data(Qt.UserRole)
+            # Retrieve the video path using the selected video ID
+            cursor.execute("SELECT videofile FROM video WHERE id = %s", (video_id,))
+            path = cursor.fetchone()[0]
+            self.player.setMedia(QMediaContent(QUrl.fromLocalFile(path)))
+            self.player.play()
+            # Start the VideoThread for violence detection
+            self.thread = VideoThread(path)
+            self.thread.change_pixmap_signal.connect(self.update_alert)
+            self.thread.start()
+            
 
     def update_play_time(self):
         position = self.player.position() / 1000
         duration = self.player.duration() / 1000
         self.playTime.setText(f"{position:.2f}/{duration:.2f}")
-        self.playerSlider.setMaximum(int(duration))  # Convert duration to integer
-        self.playerSlider.setValue(int(position))  # Ensure position is also integer
+        self.playerSlider.setMaximum(int(duration)) 
+        self.playerSlider.setValue(int(position))
 
 
     
