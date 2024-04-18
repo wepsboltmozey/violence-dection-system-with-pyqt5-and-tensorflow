@@ -23,6 +23,7 @@ class EditProfileDialog(QDialog):
         super().__init__()
         self.setWindowTitle("Edit Profile")
         self.setStyleSheet("background-color: rgb(13, 30, 64); color: rgb(255, 255, 255);")
+        self.setFixedSize(400, 450)
 
         self.layout = QVBoxLayout()
         self.setLayout(self.layout)
@@ -179,7 +180,7 @@ class EditProfileDialog(QDialog):
 IMAGE_HEIGHT, IMAGE_WIDTH = 64, 64
 SEQUENCE_LENGTH = 5
 CLASSES_LIST = ["NonViolence", "Violence"]
-CONFIDENCE_THRESHOLD = 0.90
+CONFIDENCE_THRESHOLD = 0.9
 VIDEO_OUTPUT_DIR = 'C:/Users/WEP/Documents/AI/security/artificail-eye/video/'
 model_path = 'C:/Users/WEP/Documents/AI/security/artificail-eye/model/violence3.keras'
 
@@ -204,6 +205,7 @@ class VideoThread(QThread):
 
         while self._run_flag:
             success, cv_img = video_reader.read()
+            cv_img = cv2.flip(cv_img, 1)
             if success:
                 self.change_pixmap_signal.emit(cv_img)
                 if self.video_writer is not None:
@@ -302,6 +304,9 @@ class HomeWidget(QWidget, Ui_Home):
         self.alert_dialog.setWindowTitle('Alert')
         self.alert_label = QLabel('Violence detected!', self.alert_dialog)
         self.alert_dialog.setLayout(QVBoxLayout())
+        self.alert_dialog.setFixedSize(200,50)
+        self.alert_dialog.setStyleSheet("background-color: rgb(13, 30, 64); color: rgb(255, 255, 255);")
+
         self.alert_dialog.layout().addWidget(self.alert_label)
 
         

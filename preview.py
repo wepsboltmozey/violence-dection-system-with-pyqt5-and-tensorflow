@@ -58,21 +58,41 @@ class Ui_preview(object):
         font.setPointSize(10)
         font.setBold(True)
         self.deviceVid.setFont(font)
-        self.deviceVid.setStyleSheet("")
+        self.deviceVid.setStyleSheet("\n"
+"\n"
+"#deviceVid{\n"
+"border-radius: 10px;\n"
+"background-color: #6077A6;\n"
+"color: rgb(255, 255, 255);\n"
+"}")
         self.deviceVid.setFlat(False)
         self.deviceVid.setObjectName("deviceVid")
         
         self.play = QtWidgets.QPushButton(preview)
         self.play.setGeometry(QtCore.QRect(40, 490, 41, 24))
+        self.play.setStyleSheet("\n"
+"\n"
+"#play{\n"
+"border-radius: 10px;\n"
+"background-color: #6077A6;\n"
+"color: rgb(255, 255, 255);\n"
+"}")
         self.play.setObjectName("play")
         self.pause = QtWidgets.QPushButton(preview)
         self.pause.setGeometry(QtCore.QRect(90, 490, 41, 24))
+        self.pause.setStyleSheet("\n"
+"\n"
+"#pause{\n"
+"border-radius: 10px;\n"
+"background-color: #6077A6;\n"
+"color: rgb(255, 255, 255);\n"
+"}")
         self.pause.setObjectName("pause")
         
         
         self.label_3 = QtWidgets.QLabel(preview)
         self.label_3.setGeometry(QtCore.QRect(910, 110, 141, 21))
-        self.label_3.setStyleSheet("color: rgb(255, 255, 255);\n"
+        self.label_3.setStyleSheet("color: rgb(0, 0, 0);\n"
 "font: 700 12pt \"Segoe UI\";")
         self.label_3.setObjectName("label_3")
         self.dataVid = QtWidgets.QPushButton(preview)
@@ -81,11 +101,24 @@ class Ui_preview(object):
         font.setPointSize(10)
         font.setBold(True)
         self.dataVid.setFont(font)
-        self.dataVid.setStyleSheet("")
+        self.dataVid.setStyleSheet("\n"
+"\n"
+"#dataVid{\n"
+"border-radius: 10px;\n"
+"background-color: #6077A6;\n"
+"color: rgb(255, 255, 255);\n"
+"}")
         self.dataVid.setFlat(False)
         self.dataVid.setObjectName("dataVid")
         self.cancelView = QtWidgets.QPushButton(preview)
         self.cancelView.setGeometry(QtCore.QRect(140, 490, 51, 24))
+        self.cancelView.setStyleSheet("\n"
+"\n"
+"#cancelView{\n"
+"border-radius: 10px;\n"
+"background-color: #6077A6;\n"
+"color: rgb(255, 255, 255);\n"
+"}")
         self.cancelView.setObjectName("cancelView")
 
         self.retranslateUi(preview)

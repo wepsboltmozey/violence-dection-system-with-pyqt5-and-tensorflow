@@ -21,6 +21,9 @@ class VideoDialog(QDialog):
     def __init__(self, videos):
         super().__init__()
         self.setWindowTitle("Select Video")
+        self.setFixedSize(250, 300)
+        self.setStyleSheet("background-color: rgb(13, 30, 64); color: rgb(255, 255, 255);")
+
         self.videos = videos
         layout = QVBoxLayout()
         self.list_widget = QListWidget()
@@ -119,8 +122,11 @@ class Preview(QWidget, Ui_preview):
         # Set dialog for violence detection alert
         self.alert_dialog = QDialog(self)
         self.alert_dialog.setWindowTitle('Alert')
-        self.alert_label = QLabel('Violence detected!', self.alert_dialog)
+        self.alert_label = QLabel('Violence detected in the video!', self.alert_dialog)
         self.alert_dialog.setLayout(QVBoxLayout())
+        self.alert_dialog.setFixedSize(200,50)
+        self.alert_dialog.setStyleSheet("background-color: rgb(13, 30, 64); color: rgb(255, 255, 255);")
+
         self.alert_dialog.layout().addWidget(self.alert_label)
 
         

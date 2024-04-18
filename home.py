@@ -82,7 +82,7 @@ class Ui_Home(object):
 "}\n"
 "\n"
 "#preview:hover {\n"
-"background-color: #0D1E40;\n"
+"backgro                           und-color: #0D1E40;\n"
 "border-radius: 15px;\n"
 "color: white;\n"
 "}\n"

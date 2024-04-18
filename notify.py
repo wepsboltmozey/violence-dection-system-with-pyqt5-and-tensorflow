@@ -1,10 +1,39 @@
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
+from PyQt5.QtMultimediaWidgets import *
+from PyQt5.QtMultimedia import *
 import mysql.connector as connector
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from alerts import Ui_Form
+
+class VideoDialog(QDialog):
+    def __init__(self, file_path, parent=None):
+        super(VideoDialog, self).__init__(parent)
+        self.setWindowTitle("Video Preview")
+        self.setFixedSize(640, 480)
+        self.setStyleSheet("background-color: rgb(13, 30, 64); color: rgb(255, 255, 255);")
+
+        self.file_path = file_path
+
+        # Create a QMediaPlayer
+        self.player = QMediaPlayer(self)
+
+        # Create a QVideoWidget
+        self.video_widget = QVideoWidget(self)
+        self.player.setVideoOutput(self.video_widget)
+
+        # Set up the layout
+        layout = QVBoxLayout()
+        layout.addWidget(self.video_widget)
+        self.setLayout(layout)
+
+        # Play the video
+        self.player.setMedia(QMediaContent(QUrl.fromLocalFile(self.file_path)))
+        self.player.play()
+
+
 
 class Alert(QWidget, Ui_Form):
     def __init__(self):
@@ -103,5 +132,6 @@ class Alert(QWidget, Ui_Form):
         return notify_widget
 
     def preview_video(self, file):
-        # Implement the logic to preview the video
-        pass
+        # Create and show the video dialog
+        self.video_dialog = VideoDialog(file, self)
+        self.video_dialog.show()
