@@ -75,5 +75,5 @@ class Ui_welcome(object):
         welcome.setWindowTitle(_translate("welcome", "Smart Camera System"))
         self.title.setText(_translate("welcome", "Smart Camera Sytem"))
         self.login.setText(_translate("welcome", "Login"))
-        self.label_2.setText(_translate("welcome", "Better Interaction With Camera, violent Alerts And Facial Recorgnition"))
+        self.label_2.setText(_translate("welcome", "Better Interaction With Camera And violent Alerts"))
 

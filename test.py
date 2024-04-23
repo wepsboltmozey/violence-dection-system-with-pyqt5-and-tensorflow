@@ -6,8 +6,8 @@ from keras.models import load_model
 IMAGE_HEIGHT, IMAGE_WIDTH = 64, 64
 SEQUENCE_LENGTH = 5
 THRESHOLD_CONSECUTIVE_FRAMES = 20
-CLASSES_LIST = ["NonViolence", "Violence"]
-model_path = 'C:/Users/WEP/Documents/AI/security/artificail-eye/model/violence3.keras'
+CLASSES_LIST = ["violence", "non violence"]
+model_path = 'C:/Users/WEP/Documents/AI/security/artificail-eye/vd/keras_model.h5'
 
 
 # Load the trained model
