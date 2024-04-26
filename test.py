@@ -4,10 +4,10 @@ from keras.models import load_model
 
 # Constants
 IMAGE_HEIGHT, IMAGE_WIDTH = 64, 64
-SEQUENCE_LENGTH = 5
-THRESHOLD_CONSECUTIVE_FRAMES = 20
+SEQUENCE_LENGTH = 16
+THRESHOLD_CONSECUTIVE_FRAMES = 5
 CLASSES_LIST = ["violence", "non violence"]
-model_path = 'C:/Users/WEP/Documents/AI/security/artificail-eye/vd/keras_model.h5'
+model_path = 'C:/Users/WEP/Documents/AI/security/artificail-eye/model/violence3.keras'
 
 
 # Load the trained model
@@ -48,6 +48,7 @@ def detect_violence_realtime(model, sequence_length=SEQUENCE_LENGTH):
             # If violence is detected, increment the violence counter
             if predicted_class_name == "Violence":
                 violence_counter += 1
+                print(violence_counter)
             else:
                 violence_counter = 0
 

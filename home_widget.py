@@ -180,7 +180,7 @@ class EditProfileDialog(QDialog):
 IMAGE_HEIGHT, IMAGE_WIDTH = 64, 64
 SEQUENCE_LENGTH = 5
 CLASSES_LIST = ["NonViolence", "Violence"]
-CONFIDENCE_THRESHOLD = 0.9
+CONFIDENCE_THRESHOLD = 0.95
 VIDEO_OUTPUT_DIR = 'C:/Users/WEP/Documents/AI/security/artificail-eye/video/'
 model_path = 'C:/Users/WEP/Documents/AI/security/artificail-eye/model/violence3.keras'
 
@@ -214,13 +214,16 @@ class VideoThread(QThread):
                 normalized_frame = resized_frame / 255
                 frames_list.append(normalized_frame)
                 if len(frames_list) == SEQUENCE_LENGTH:
-                    predicted_labels_probabilities = self.model.predict(np.expand_dims(frames_list, axis=0))[0]
+                    frames = np.array(frames_list)
+                    predicted_labels_probabilities = self.model.predict(np.expand_dims(frames, axis=0))[0]
                     predicted_label = np.argmax(predicted_labels_probabilities)
                     predicted_class_name = CLASSES_LIST[predicted_label]
                     frames_list.pop(0)
-                    if predicted_class_name == "Violence" and not self.violence_detected and predicted_labels_probabilities[predicted_label] >= CONFIDENCE_THRESHOLD:
-                        self.violence_detected = True
+                    if predicted_class_name == "Violence" and predicted_labels_probabilities[predicted_label] >= CONFIDENCE_THRESHOLD:
+                        # If violence is detected, emit the alert signal
                         self.alert_signal.emit()
+                        # Reset the violence_detected flag to allow for subsequent detection
+                        self.violence_detected = False
             else:
                 break
 
@@ -272,18 +275,10 @@ class HomeWidget(QWidget, Ui_Home):
         self.alertN.clicked.connect(self.show_alerts_widget)
         
         
-        
-
     
         self.preview = Preview()
         self.alerts = Alert()
        
-       
-      
-       
-
-
-        
 
         # set playing area 
         self.camera.setLayout(QVBoxLayout())
@@ -330,13 +325,19 @@ class HomeWidget(QWidget, Ui_Home):
     def update_alert(self):
         # Play an alarm sound when violence is detected
         self.alert_sound = QSound('C:/Users/WEP/Documents/AI/security/artificail-eye/resources/Alarm.wav')
+        self.alert_sound.setLoops(QSound.Infinite)
         self.alert_sound.play()
         self.alert_dialog.show()
+        self.alert_dialog.finished.connect(self.stop_alert_sound)
         cursor = self.connection.cursor()
         cursor.execute("INSERT INTO notification (datetime, notification, file) VALUES (%s, %s, %s)",
                        (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), 'Violence detected', self.video_filename))
         self.connection.commit()
         cursor.close()
+
+    def stop_alert_sound(self):
+        # Stop the alarm sound when the dialog is closed
+        self.alert_sound.stop()    
 
 
     def start_video(self):
