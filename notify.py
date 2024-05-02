@@ -4,7 +4,7 @@ from PyQt5.QtGui import *
 from PyQt5.QtMultimediaWidgets import *
 from PyQt5.QtMultimedia import *
 import mysql.connector as connector
-from PyQt5 import QtCore, QtGui, QtWidgets
+
 
 from alerts import Ui_Form
 

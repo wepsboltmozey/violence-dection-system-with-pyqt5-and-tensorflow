@@ -1,5 +1,4 @@
-import base64
-import os
+
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 from PyQt5.QtMultimediaWidgets import *
@@ -12,7 +11,7 @@ from preview import Ui_preview
 import mysql.connector as connector
 
 IMAGE_HEIGHT, IMAGE_WIDTH = 64, 64
-SEQUENCE_LENGTH = 10
+SEQUENCE_LENGTH = 16
 CLASSES_LIST = ["NonViolence", "Violence"]
 model_path = 'C:/Users/WEP/Documents/AI/security/artificail-eye/model/violence3.keras'
 
